@@ -2,25 +2,6 @@
 
 PorFraDansk er et kunstigt, konstrueret sprog (conlang) skabt som en hybrid mellem **portugisisk**, **fransk** og **dansk**. Sproget forsøger at forene romansk ordforråd og grammatisk systematik med elementer fra dansk sproglære og udtale. 
 
-Dette dokument giver en komplet introduktion til sprogets opbygning, grammatik, fonologi samt den bagvedliggende tekniske motor i oversætteren.
-
----
-
-## Indholdsfortegnelse
-1. [Sprogligt design & Inspiration](#sprogligt-design--inspiration)
-2. [Fonologi & Udtaleregler](#fonologi--udtaleregler)
-3. [Grammatiske Regler & Struktur](#grammatiske-regler--struktur)
-   - [OVS-ordstilling (Objekt-Verb-Subjekt)](#ovs-ordstilling-objekt-verb-subjekt)
-   - [Pronomener & Bestemmere](#pronomener--bestemmere)
-   - [Verbbøjning (Agglutinerende Suffix-Stacking)](#verbbøjning-agglutinerende-suffix-stacking)
-   - [Orddannelse (Derivationer)](#orddannelse-derivationer)
-   - [Tal og Numeriske Systemer](#tal-og-numeriske-systemer)
-4. [Teknisk Opbygning af Oversætteren](#teknisk-opbygning-af-oversætteren)
-   - [1. Ordbogsopslag (dictionary.js)](#1-ordbogsopslag-dictionaryjs)
-   - [2. Morfologisk Analyse (translator.js)](#2-morfologisk-analyse-translatorjs)
-   - [3. Fonetisk Gættemotor (Transliteration)](#3-fonetisk-gættemotor-transliteration)
-   - [4. Brugerflade & Oversættelses-flow](#4-brugerflade--oversættelses-flow)
-
 ---
 
 ## Sprogligt design & Inspiration
@@ -187,35 +168,3 @@ Oversætteren er bygget som en ren klientside JavaScript-applikation bestående 
 3.  [index.html](file:///c:/Users/snesk/Documents/programmering/programmering/porfradansk/index.html) & [style.css](file:///c:/Users/snesk/Documents/programmering/programmering/porfradansk/style.css) – En premium, responsiv webgrænseflade med mørkt tema, glasagtige effekter og animationer.
 
 Oversættelsesmotoren arbejder i fire lag for at sikre, at tekst altid kan oversættes (selvom ordet ikke findes i ordbogen):
-
-```mermaid
-graph TD
-    A[Indtastet ord] --> B{Findes ordet i ordbogen?}
-    B -- Ja --> C[Direkte opslag]
-    B -- Nej --> D{Matcher det bøjningsmønstre?}
-    D -- Ja --> E[Morfologisk bøjning/afbøjning]
-    D -- Nej --> F[Fonetisk gættemotor]
-    C --> G[Oversat resultat]
-    E --> G
-    F --> G
-```
-
-### 1. Ordbogsopslag (dictionary.js)
-Når applikationen starter, opbygges to hurtige Map-strukturer (`danskToPf` og `pfToDansk`) for at give øjeblikkelige opslag på hele ord. Hvis et ord findes her, oversættes det direkte.
-
-### 2. Morfologisk Analyse (translator.js)
-Hvis et ord ikke findes direkte i ordbogen, forsøger oversætteren at skrælle eventuelle endelser af for at finde stammen:
-*   **Fra PorFraDansk til Dansk:** Motoren tjekker listen af verbum-bøjninger (`PF_VERB_SUFFIXES` som `rómónga`, `ranga`, `ró`, `mó`, `nga` osv.) og aflednings-endelser (`ongus`, `éng`, `mang`, `té`). Finder den en match, fjerner den endelsen, slår stammen op, og oversætter samt tilføjer grammatisk info (f.eks. *"spise (datid, progressiv)"*).
-*   **Fra Dansk til PorFraDansk:** Motoren genkender almindelige danske bøjninger (f.eks. `-ede`, `-te`, `-er`, `-et`, `-erne`, `-ene`) og erstatter dem med de tilsvarende porfradanske agglutinerende endelser (f.eks. `datid` $\rightarrow$ `+ró`, `bestemt form` $\rightarrow$ `ló` foran ordet).
-
-### 3. Fonetisk Gættemotor (Transliteration)
-Hvis et ord hverken findes i ordbogen eller kan afbøjes grammatisk, slår en **fonetisk gættemotor** til (markeret med ✨ i brugerfladen). Denne motor omdanner ordet bogstav for bogstav baseret på sprogets fonologiske regler:
-*   Konsonantklynger som `sj` bliver til `sh`, `ch` bliver til `c`, og `w` til `v`.
-*   Bløde d'er tilføjes et `h` (`dh`).
-*   Vokaler konverteres til deres modsvarende accentuerede former (`æ` $\rightarrow$ `e`, `ø` $\rightarrow$ `ö`, `e` $\rightarrow$ `é`, `o` $\rightarrow$ `ó`, `a` $\rightarrow$ `á`).
-*   Post-vokaliske r'er konverteres til `rh` (jf. R-reglen).
-
-### 4. Brugerflade & Oversættelses-flow
-*   **Realtidsoversættelse:** Oversættelsen sker øjeblikkeligt (med en lille 150ms debounce-forsinkelse for at undgå lag, mens brugeren skriver).
-*   **Ord-for-ord analyse:** Under oversætteren vises en visuel nedbrydning af hvert enkelt ord. Her markeres det, om ordet er fundet direkte i ordbogen (grøn), afledt via bøjninger (blå/⚙), eller gættet fonetisk (lilla/✨).
-*   **Interaktiv ordbog:** Brugeren kan søge direkte i ordbogen på tværs af dansk, porfradansk og kommentarer. Klikker man på et ord i listen, indsættes det direkte i oversætterfeltet.
