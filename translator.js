@@ -9,31 +9,341 @@ let currentDirection = 'da';
 const danskToPf = new Map();
 const pfToDansk = new Map();
 
+// Also store ALL entries (for reverse lookups & multi-meaning words)
+const danskToPfAll = new Map();  // key → array of {pf, note}
+const pfToDanskAll = new Map();  // key → array of {da, note}
+
 function buildMaps() {
     for (const [da, pf, note] of DICTIONARY) {
         const daLower = da.toLowerCase();
         const pfLower = pf.toLowerCase();
         
-        // Danish → PorFraDansk (store first match)
+        // Danish → PorFraDansk (store first match for primary lookup)
         if (!danskToPf.has(daLower)) {
             danskToPf.set(daLower, { pf, note });
         }
         
-        // PorFraDansk → Danish (store first match)
+        // PorFraDansk → Danish (store first match for primary lookup)
         if (!pfToDansk.has(pfLower)) {
             pfToDansk.set(pfLower, { da, note });
         }
+        
+        // Store all matches
+        if (!danskToPfAll.has(daLower)) {
+            danskToPfAll.set(daLower, []);
+        }
+        danskToPfAll.get(daLower).push({ pf, note });
+        
+        if (!pfToDanskAll.has(pfLower)) {
+            pfToDanskAll.set(pfLower, []);
+        }
+        pfToDanskAll.get(pfLower).push({ da, note });
     }
 }
 
 buildMaps();
 
 // ============================================
+// Morphological Analysis for PorFraDansk
+// ============================================
+// Tries to strip verb conjugation suffixes and find the root
+
+// Conjugation suffixes (order matters - try longest/outermost first)
+const PF_VERB_SUFFIXES = [
+    // Complex combinations (progressive + passive + tense)
+    { suffix: 'rómónga', label: 'datid+passiv+progressiv', tenseInfo: ' (datid, passiv, progressiv)' },
+    { suffix: 'ramónga', label: 'fremtid+passiv+progressiv', tenseInfo: ' (fremtid, passiv, progressiv)' },
+    { suffix: 'bomócanga', label: 'i morgen+passiv-causativ+progressiv', tenseInfo: ' (i morgen, passiv-causativ, progressiv)' },
+    { suffix: 'rómócanga', label: 'datid+passiv-causativ+progressiv', tenseInfo: ' (datid, passiv-causativ, progressiv)' },
+    // Double combinations
+    { suffix: 'rómó', label: 'datid+passiv', tenseInfo: ' (datid, passiv)' },
+    { suffix: 'ramó', label: 'fremtid+passiv', tenseInfo: ' (fremtid, passiv)' },
+    { suffix: 'rónga', label: 'datid+progressiv', tenseInfo: ' (datid, progressiv)' },
+    { suffix: 'ranga', label: 'fremtid+progressiv', tenseInfo: ' (fremtid, progressiv)' },
+    { suffix: 'mónga', label: 'passiv+progressiv', tenseInfo: ' (passiv, progressiv)' },
+    { suffix: 'canga', label: 'causativ+progressiv', tenseInfo: ' (causativ, progressiv)' },
+    { suffix: 'mócha', label: 'passiv-causativ', tenseInfo: ' (passiv-causativ)' },
+    // Single suffixes
+    { suffix: 'ró', label: 'datid', tenseInfo: ' (datid)' },
+    { suffix: 'ra', label: 'fremtid', tenseInfo: ' (fremtid)' },
+    { suffix: 'bo', label: 'i morgen', tenseInfo: ' (i morgen)' },
+    { suffix: 'mó', label: 'passiv', tenseInfo: ' (passiv)' },
+    { suffix: 'ca', label: 'causativ', tenseInfo: ' (causativ)' },
+    { suffix: 'nga', label: 'progressiv', tenseInfo: ' (progressiv)' },
+];
+
+// Derivation suffixes (noun/adj/adv formation)
+const PF_DERIVATION_SUFFIXES = [
+    { suffix: 'ongus', label: 'en der [verb]', transform: (root) => root + 'e' },
+    { suffix: 'éng', label: 'handlingen at [verb]', transform: (root) => root + 'e' },
+    { suffix: 'mang', label: 'adverbium af [adj]', transform: (root) => root },
+    { suffix: 'té', label: 'konceptet af [adj]', transform: (root) => root },
+];
+
+function tryMorphologicalLookup(word) {
+    const lower = word.toLowerCase();
+    
+    // 1. Try stripping verb conjugation suffixes
+    for (const { suffix, label, tenseInfo } of PF_VERB_SUFFIXES) {
+        if (lower.endsWith(suffix) && lower.length > suffix.length + 1) {
+            const stem = lower.slice(0, -suffix.length);
+            // The stem should be the root; infinitive is root + 'e'
+            const infinitive = stem + 'e';
+            const entry = pfToDansk.get(infinitive);
+            if (entry) {
+                return {
+                    da: entry.da + tenseInfo,
+                    note: `${infinitive} → ${entry.da}, bøjet: ${label}`,
+                    found: true
+                };
+            }
+            // Also try without adding 'e' (for roots that don't end in consonant)
+            const entryDirect = pfToDansk.get(stem);
+            if (entryDirect) {
+                return {
+                    da: entryDirect.da + tenseInfo,
+                    note: `${stem} → ${entryDirect.da}, bøjet: ${label}`,
+                    found: true
+                };
+            }
+        }
+    }
+    
+    // 2. Try present tense: if word ends in 'a', try replacing with 'e' for infinitive
+    if (lower.endsWith('a') && lower.length > 2) {
+        const possibleInfinitive = lower.slice(0, -1) + 'e';
+        const entry = pfToDansk.get(possibleInfinitive);
+        if (entry) {
+            return {
+                da: entry.da + ' (nutid)',
+                note: `${possibleInfinitive} → ${entry.da}, bøjet: nutid`,
+                found: true
+            };
+        }
+    }
+    
+    // 3. Try derivation suffixes
+    for (const { suffix, label, transform } of PF_DERIVATION_SUFFIXES) {
+        if (lower.endsWith(suffix) && lower.length > suffix.length + 1) {
+            const stem = lower.slice(0, -suffix.length);
+            const lookupForm = transform(stem);
+            const entry = pfToDansk.get(lookupForm);
+            if (entry) {
+                return {
+                    da: `${label.replace('[verb]', entry.da).replace('[adj]', entry.da)}`,
+                    note: `afledt fra ${lookupForm} (${entry.da})`,
+                    found: true
+                };
+            }
+            // Also try stem directly
+            const entryDirect = pfToDansk.get(stem);
+            if (entryDirect) {
+                return {
+                    da: `${label.replace('[verb]', entryDirect.da).replace('[adj]', entryDirect.da)}`,
+                    note: `afledt fra ${stem} (${entryDirect.da})`,
+                    found: true
+                };
+            }
+        }
+    }
+    
+    return null;
+}
+
+// ============================================
+// Danish Morphological Guessing
+// ============================================
+// Try to handle common Danish word forms
+
+const DA_VERB_SUFFIXES = [
+    // Past tense patterns
+    { pattern: /^(.+)ede$/, getInfinitive: (m) => m[1] + 'e', tense: 'datid' },
+    { pattern: /^(.+)te$/, getInfinitive: (m) => m[1] + 'e', tense: 'datid' },
+    // Present tense patterns  
+    { pattern: /^(.+)er$/, getInfinitive: (m) => m[1] + 'e', tense: 'nutid' },
+    // Past participle
+    { pattern: /^(.+)et$/, getInfinitive: (m) => m[1] + 'e', tense: 'datid (tillægsform)' },
+];
+
+const DA_NOUN_SUFFIXES = [
+    // Definite forms
+    { pattern: /^(.+)en$/, getBase: (m) => m[1], note: 'bestemt form' },
+    { pattern: /^(.+)et$/, getBase: (m) => m[1], note: 'bestemt form' },
+    // Plural
+    { pattern: /^(.+)erne$/, getBase: (m) => m[1], note: 'flertal bestemt' },
+    { pattern: /^(.+)ene$/, getBase: (m) => m[1], note: 'flertal bestemt' },
+    { pattern: /^(.+)er$/, getBase: (m) => m[1], note: 'flertal' },
+];
+
+const DA_ADJ_SUFFIXES = [
+    // Definite / plural adjective (e.g. "mistænkelige" -> "mistænkelig")
+    { pattern: /^(.+)e$/, getBase: (m) => m[1], note: 'bestemt/flertal adjektiv' },
+];
+
+function tryDanishMorphology(word) {
+    const lower = word.toLowerCase();
+    
+    // Try verb patterns
+    for (const { pattern, getInfinitive, tense } of DA_VERB_SUFFIXES) {
+        const match = lower.match(pattern);
+        if (match) {
+            const infinitive = getInfinitive(match);
+            const entry = danskToPf.get(infinitive);
+            if (entry) {
+                // Apply PorFraDansk tense conjugation
+                const pfInfinitive = entry.pf;
+                let pfConjugated = pfInfinitive;
+                
+                if (tense === 'nutid') {
+                    // Remove final 'e', add 'a'
+                    if (pfInfinitive.endsWith('e')) {
+                        pfConjugated = pfInfinitive.slice(0, -1) + 'a';
+                    }
+                } else if (tense === 'datid' || tense === 'datid (tillægsform)') {
+                    pfConjugated = pfInfinitive + 'ró';
+                }
+                
+                return {
+                    pf: pfConjugated,
+                    note: `${infinitive} → ${entry.pf}, bøjet: ${tense}`,
+                    found: true
+                };
+            }
+        }
+    }
+    
+    // Try adjective patterns
+    for (const { pattern, getBase, note } of DA_ADJ_SUFFIXES) {
+        const match = lower.match(pattern);
+        if (match) {
+            const base = getBase(match);
+            const entry = danskToPf.get(base);
+            if (entry) {
+                return {
+                    pf: entry.pf,
+                    note: `${base} → ${entry.pf}, ${note}`,
+                    found: true
+                };
+            }
+        }
+    }
+    
+    // Try noun patterns (definite/plural)
+    for (const { pattern, getBase, note } of DA_NOUN_SUFFIXES) {
+        const match = lower.match(pattern);
+        if (match) {
+            const base = getBase(match);
+            const entry = danskToPf.get(base);
+            if (entry) {
+                let pfResult = entry.pf;
+                if (note.includes('bestemt')) {
+                    pfResult = 'ló ' + entry.pf;
+                }
+                return {
+                    pf: pfResult,
+                    note: `${base} → ${entry.pf}, ${note}`,
+                    found: true
+                };
+            }
+        }
+    }
+    
+    return null;
+}
+
+// ============================================
+// Fallback Phonetic Transliteration Engine
+// ============================================
+// Guesses translations based on the phonology rules in the PDF
+
+function phoneticTransliterateDanish(word) {
+    let result = word.toLowerCase();
+    
+    // Consonant clusters
+    result = result.replace(/sj/g, 'sh');
+    result = result.replace(/ch/g, 'c');
+    result = result.replace(/ph/g, 'f');
+    result = result.replace(/w/g, 'v');
+    result = result.replace(/x/g, 'ks');
+    result = result.replace(/q/g, 'k');
+    
+    // soft d/g at the end of syllables
+    result = result.replace(/d$/g, 'dh');
+    result = result.replace(/d([^aeiouyæøåáóéö])/g, 'dh$1');
+    
+    // post-vocalic r -> rh (r can only come before vowels, not after)
+    result = result.replace(/([aeiouyæøå])r([^aeiouyæøå]|$)/g, '$1rh$2');
+    
+    // Vowels mapping preserving double vowels
+    let builder = "";
+    for (let i = 0; i < result.length; i++) {
+        let char = result[i];
+        let next = result[i+1];
+        
+        if (char === next && /[aeiouyæøå]/.test(char)) {
+            let mapped = mapVowel(char);
+            builder += mapped + mapped;
+            i++;
+        } else {
+            builder += mapVowel(char);
+        }
+    }
+    
+    return builder;
+}
+
+function mapVowel(char) {
+    switch (char) {
+        case 'æ': return 'e';
+        case 'ø': return 'ö';
+        case 'e': return 'é';
+        case 'o': return 'ó';
+        case 'a': return 'á';
+        default: return char;
+    }
+}
+
+function phoneticTransliteratePorFraDansk(word) {
+    let result = word.toLowerCase();
+    
+    result = result.replace(/sh/g, 'sj');
+    result = result.replace(/c/g, 'ch');
+    result = result.replace(/dh/g, 'd');
+    result = result.replace(/rh/g, 'r');
+    
+    let builder = "";
+    for (let i = 0; i < result.length; i++) {
+        let char = result[i];
+        let next = result[i+1];
+        
+        if (char === next && /[eöóá]/.test(char)) {
+            let mapped = mapReverseVowel(char);
+            builder += mapped + mapped;
+            i++;
+        } else {
+            builder += mapReverseVowel(char);
+        }
+    }
+    
+    return builder;
+}
+
+function mapReverseVowel(char) {
+    switch (char) {
+        case 'e': return 'æ';
+        case 'ö': return 'ø';
+        case 'é': return 'e';
+        case 'ó': return 'o';
+        case 'á': return 'a';
+        default: return char;
+    }
+}
+
+// ============================================
 // Translation Functions
 // ============================================
 
 function translateWord(word, direction) {
-    const lower = word.toLowerCase();
     // Strip trailing punctuation for lookup
     const punctMatch = word.match(/^(.*?)([.,!?;:'"»«\)\]]+)$/);
     let core = word;
@@ -55,6 +365,7 @@ function translateWord(word, direction) {
     
     if (direction === 'da') {
         // Danish → PorFraDansk
+        // 1. Direct dictionary lookup
         const entry = danskToPf.get(coreLower);
         if (entry) {
             return {
@@ -64,8 +375,29 @@ function translateWord(word, direction) {
                 translated: entry.pf
             };
         }
+        
+        // 2. Try Danish morphological analysis
+        const morphResult = tryDanishMorphology(core);
+        if (morphResult) {
+            return {
+                result: leading + matchCase(core, morphResult.pf) + trailing,
+                found: true,
+                original: core,
+                translated: morphResult.pf + ' ⚙'
+            };
+        }
+
+        // 3. Fallback: Phonetic guessing based on PDF rules
+        const guessed = phoneticTransliterateDanish(core);
+        return {
+            result: leading + matchCase(core, guessed) + trailing,
+            found: true,
+            original: core,
+            translated: guessed + ' ✨'
+        };
     } else {
         // PorFraDansk → Danish
+        // 1. Direct dictionary lookup
         const entry = pfToDansk.get(coreLower);
         if (entry) {
             return {
@@ -75,17 +407,31 @@ function translateWord(word, direction) {
                 translated: entry.da
             };
         }
+        
+        // 2. Try PorFraDansk morphological analysis
+        const morphResult = tryMorphologicalLookup(core);
+        if (morphResult) {
+            return {
+                result: leading + matchCase(core, morphResult.da) + trailing,
+                found: true,
+                original: core,
+                translated: morphResult.da + ' ⚙'
+            };
+        }
+
+        // 3. Fallback: Phonetic guessing based on PDF rules
+        const guessed = phoneticTransliteratePorFraDansk(core);
+        return {
+            result: leading + matchCase(core, guessed) + trailing,
+            found: true,
+            original: core,
+            translated: guessed + ' ✨'
+        };
     }
-    
-    return {
-        result: word,
-        found: false,
-        original: core,
-        translated: core
-    };
 }
 
 function matchCase(source, target) {
+    if (!source || !target) return target;
     if (source === source.toUpperCase() && source.length > 1) {
         return target.toUpperCase();
     }
@@ -227,11 +573,22 @@ function doTranslation() {
         
         for (const w of words) {
             const el = document.createElement('div');
-            el.className = `breakdown-word ${w.found ? '' : 'unknown'}`;
+            const isMorphed = w.translated.includes('⚙');
+            const isGuessed = w.translated.includes('✨');
+            let statusClass = '';
+            if (isMorphed) {
+                statusClass = 'morphed';
+            } else if (isGuessed) {
+                statusClass = 'guessed';
+            } else if (!w.found) {
+                statusClass = 'unknown';
+            }
+            
+            el.className = `breakdown-word ${statusClass}`;
             el.innerHTML = `
                 <span class="original">${escapeHtml(w.original)}</span>
                 <span class="arrow">↓</span>
-                <span class="translated">${escapeHtml(w.translated)}${w.found ? '' : ' ⚠'}</span>
+                <span class="translated">${escapeHtml(w.translated)}${!w.found ? ' ⚠' : ''}</span>
             `;
             breakdownGrid.appendChild(el);
         }
