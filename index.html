@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Oversæt mellem Dansk og PorFraDansk — et nyopfundet konstrueret sprog. Ordbog, grammatik og eksempler.">
+    <title>PorFraDansk Oversætter — Dansk ↔ PorFraDansk</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Animated background orbs -->
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <header>
+        <div class="logo">
+            <span class="logo-icon">🌐</span>
+            <h1>PorFraDansk</h1>
+        </div>
+        <p class="subtitle">Oversætter mellem Dansk og PorFraDansk</p>
+    </header>
+
+    <main>
+        <!-- Translator Card -->
+        <section class="translator-card" id="translator">
+            <div class="direction-bar">
+                <button class="lang-btn active" id="btn-da" onclick="setDirection('da')">
+                    <span class="lang-flag">🇩🇰</span> Dansk
+                </button>
+                <button class="swap-btn" id="swap-btn" onclick="swapDirection()" title="Byt retning">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="17 1 21 5 17 9"></polyline>
+                        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                        <polyline points="7 23 3 19 7 15"></polyline>
+                        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                    </svg>
+                </button>
+                <button class="lang-btn" id="btn-pf" onclick="setDirection('pf')">
+                    <span class="lang-flag">✦</span> PorFraDansk
+                </button>
+            </div>
+
+            <div class="translate-area">
+                <div class="input-group">
+                    <label for="input-text">Indtast tekst</label>
+                    <textarea id="input-text" placeholder="Skriv her…" rows="5" autofocus></textarea>
+                    <div class="input-actions">
+                        <span class="char-count" id="char-count">0 tegn</span>
+                        <button class="clear-btn" onclick="clearInput()" title="Ryd">✕</button>
+                    </div>
+                </div>
+
+                <div class="divider-vertical"></div>
+
+                <div class="output-group">
+                    <label>Oversættelse</label>
+                    <div class="output-text" id="output-text">
+                        <span class="placeholder-text">Oversættelsen vises her…</span>
+                    </div>
+                    <div class="output-actions">
+                        <button class="copy-btn" onclick="copyOutput()" title="Kopiér">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            Kopiér
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Word-by-word breakdown -->
+        <section class="breakdown-card" id="breakdown-section" style="display:none;">
+            <h2>📖 Ord-for-ord analyse</h2>
+            <div class="breakdown-grid" id="breakdown-grid"></div>
+        </section>
+
+        <!-- Dictionary Section -->
+        <section class="dictionary-card" id="dictionary">
+            <h2>📚 Ordbog</h2>
+            <div class="dict-search-wrapper">
+                <input type="text" id="dict-search" placeholder="Søg i ordbogen…" oninput="filterDictionary()">
+                <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+            </div>
+            <div class="dict-table-wrapper">
+                <table class="dict-table" id="dict-table">
+                    <thead>
+                        <tr>
+                            <th>Dansk</th>
+                            <th>PorFraDansk</th>
+                            <th>Note</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dict-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Grammar Quick Reference -->
+        <section class="grammar-card" id="grammar">
+            <h2>📝 Grammatik — hurtigreference</h2>
+            <div class="grammar-grid">
+                <div class="grammar-item">
+                    <h3>Pronomener</h3>
+                    <table class="mini-table">
+                        <tr><td>jeg</td><td class="pf">shai</td></tr>
+                        <tr><td>du/dig</td><td class="pf">tu</td></tr>
+                        <tr><td>han</td><td class="pf">hil</td></tr>
+                        <tr><td>hun</td><td class="pf">hel</td></tr>
+                        <tr><td>den/det</td><td class="pf">hesa</td></tr>
+                        <tr><td>man</td><td class="pf">mon</td></tr>
+                        <tr><td>vi/os</td><td class="pf">vinos</td></tr>
+                        <tr><td>i/jer</td><td class="pf">ivu</td></tr>
+                        <tr><td>de/dem</td><td class="pf">dil</td></tr>
+                    </table>
+                </div>
+                <div class="grammar-item">
+                    <h3>Possessive</h3>
+                    <table class="mini-table">
+                        <tr><td>min/mit</td><td class="pf">món</td></tr>
+                        <tr><td>din/dit</td><td class="pf">tón</td></tr>
+                        <tr><td>hans</td><td class="pf">háns</td></tr>
+                        <tr><td>hendes</td><td class="pf">héns</td></tr>
+                        <tr><td>dens/dets</td><td class="pf">dés</td></tr>
+                        <tr><td>vores</td><td class="pf">voos</td></tr>
+                        <tr><td>jeres</td><td class="pf">jaas</td></tr>
+                        <tr><td>deres</td><td class="pf">daas</td></tr>
+                    </table>
+                </div>
+                <div class="grammar-item">
+                    <h3>Verbbøjning</h3>
+                    <table class="mini-table">
+                        <tr><td>Infinitiv</td><td class="pf">+e</td></tr>
+                        <tr><td>Nutid</td><td class="pf">fjern "e", tilføj "a"</td></tr>
+                        <tr><td>Datid</td><td class="pf">+ró</td></tr>
+                        <tr><td>Fremtid</td><td class="pf">+ra</td></tr>
+                        <tr><td>I morgen</td><td class="pf">+bo</td></tr>
+                        <tr><td>Passiv</td><td class="pf">+mó</td></tr>
+                        <tr><td>Causativ</td><td class="pf">+ca</td></tr>
+                        <tr><td>Progressiv</td><td class="pf">+nga</td></tr>
+                        <tr><td>Imperativ</td><td class="pf">+ka</td></tr>
+                    </table>
+                </div>
+                <div class="grammar-item">
+                    <h3>Artikler</h3>
+                    <table class="mini-table">
+                        <tr><td>bestemt (den/det)</td><td class="pf">ló + [navneord]</td></tr>
+                        <tr><td>ubestemt (en/et)</td><td class="pf">un + [navneord]</td></tr>
+                        <tr><td>denne/dette</td><td class="pf">thes</td></tr>
+                        <tr><td>den der/det der</td><td class="pf">thédér</td></tr>
+                    </table>
+                </div>
+                <div class="grammar-item">
+                    <h3>Spørgeord</h3>
+                    <table class="mini-table">
+                        <tr><td>hvad</td><td class="pf">kádh</td></tr>
+                        <tr><td>hvor</td><td class="pf">oze</td></tr>
+                        <tr><td>hvem</td><td class="pf">kem</td></tr>
+                        <tr><td>hvornår</td><td class="pf">vondó</td></tr>
+                        <tr><td>hvorfor</td><td class="pf">pofo</td></tr>
+                    </table>
+                </div>
+                <div class="grammar-item">
+                    <h3>Tal (0–10)</h3>
+                    <table class="mini-table">
+                        <tr><td>0</td><td class="pf">théthó</td></tr>
+                        <tr><td>1</td><td class="pf">un</td></tr>
+                        <tr><td>2</td><td class="pf">dö</td></tr>
+                        <tr><td>3</td><td class="pf">te</td></tr>
+                        <tr><td>4</td><td class="pf">fo</td></tr>
+                        <tr><td>5</td><td class="pf">fe</td></tr>
+                        <tr><td>6</td><td class="pf">döu</td></tr>
+                        <tr><td>7</td><td class="pf">teu</td></tr>
+                        <tr><td>8</td><td class="pf">fou</td></tr>
+                        <tr><td>9</td><td class="pf">feu</td></tr>
+                        <tr><td>10</td><td class="pf">i</td></tr>
+                    </table>
+                </div>
+                <div class="grammar-item">
+                    <h3>Sætningsstruktur (OVS)</h3>
+                    <p class="grammar-note">PorFraDansk bruger <strong>Objekt – Verb – Subjekt</strong> rækkefølge:</p>
+                    <div class="example-box">
+                        <span class="pf">"Tu teebe ka!"</span><br>
+                        <span class="da">= "Dræb dig selv!" (Du dræbe [imperativ])</span>
+                    </div>
+                </div>
+                <div class="grammar-item">
+                    <h3>Nounification</h3>
+                    <table class="mini-table">
+                        <tr><td>en der gør verbet</td><td class="pf">fjern "e", +ongus</td></tr>
+                        <tr><td>handlingen</td><td class="pf">fjern "e", +éng</td></tr>
+                    </table>
+                    <div class="example-box">
+                        <span class="pf">foplike → foplikongus</span><br>
+                        <span class="da">(forklare → forklarer)</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Example Sentences -->
+        <section class="examples-card" id="examples">
+            <h2>💬 Eksempelsætninger</h2>
+            <div class="examples-list" id="examples-list"></div>
+        </section>
+    </main>
+
+    <footer>
+        <p>PorFraDansk Oversætter — Et konstrueret sprog 🌍</p>
+    </footer>
+
+    <script src="dictionary.js"></script>
+    <script src="translator.js"></script>
+</body>
+</html>
