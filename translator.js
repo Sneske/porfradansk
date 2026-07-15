@@ -5,6 +5,11 @@
 // Current direction: 'da' = Danish→PorFraDansk, 'pf' = PorFraDansk→Danish
 let currentDirection = 'da';
 
+const translationMemory = {
+    daToPf: new Map(),
+    pfToDa: new Map()
+};
+
 // Build lookup maps from DICTIONARY
 const danskToPf = new Map();
 const pfToDansk = new Map();
@@ -13,10 +18,70 @@ const pfToDansk = new Map();
 const danskToPfAll = new Map();  // key → array of {pf, note}
 const pfToDanskAll = new Map();  // key → array of {da, note}
 
+const DANISH_VERB_INFINITIVES = new Set([
+    "være", "have", "gøre", "lave", "gå", "spise", "elske", "lide", "dræbe", "sige",
+    "fortælle", "bedrage", "forklare", "undervise", "forene", "involvere", "snipe", "træne",
+    "øve", "vide", "ville", "burde", "skulle", "føde", "give", "bedømme", "se", "google",
+    "tale", "snakke", "behandle", "tvære", "frygte", "bestå", "kunne", "komme", "tænke",
+    "drikke", "skrive", "læse", "løbe", "flyve", "sove", "hjælpe", "forstå", "synge",
+    "danse", "vente", "købe", "sælge", "åbne", "lukke", "arbejde", "spille", "hedde",
+    "lære", "finde", "tro", "prøve", "bruge", "bo", "stoppe", "begynde", "oversætte",
+    "flytte", "betale", "lege"
+]);
+
+const pfVerbInfinitives = new Set();
+
+const PRONOUN_MAP = {
+    'shai': { subject: 'jeg', object: 'mig' },
+    'tu': { subject: 'du', object: 'dig' },
+    'hil': { subject: 'han', object: 'ham' },
+    'hel': { subject: 'hun', object: 'hende' },
+    'vinos': { subject: 'vi', object: 'os' },
+    'ivu': { subject: 'I', object: 'jer' },
+    'dil': { subject: 'de', object: 'dem' }
+};
+
+const NEUTER_NOUNS = new Set([
+    "gymnasie", "vand", "brød", "smør", "internet", "ord", "hus", "tilfælde", "talent", 
+    "militær", "angreb", "drab", "helvede", "ur", "mål", "snyd", "hjerte", "hoved", 
+    "øje", "problem", "svar", "spørgsmål", "barn", "hav", "land", "sted", "liv", 
+    "had", "håb", "spil", "arbejde"
+]);
+
+const PLURAL_NOUNS = new Set([
+    "mennesker", "personer", "brødre", "rettigheder", "børn", "penge", "typer"
+]);
+
+const PLURAL_MODIFIERS = new Set([
+    "ul", "maku", "dö", "te", "fo", "fe", "döu", "teu", "fou", "feu", "i",
+    "döi", "tei", "foi", "fei", "döui", "teui", "foui", "feui", "sung", "mil",
+    "milóó", "milaa", "dil", "vinos", "ivu"
+]);
+
+function isPorFraDanskVerb(word) {
+    const lower = word.toLowerCase();
+    if (pfVerbInfinitives.has(lower)) return true;
+    for (const { suffix } of PF_VERB_SUFFIXES) {
+        if (lower.endsWith(suffix) && lower.length > suffix.length) {
+            return true;
+        }
+    }
+    if (lower.endsWith('a') && lower.length > 1) {
+        const stem = lower.slice(0, -1);
+        if (pfVerbInfinitives.has(stem + 'e')) return true;
+        if (pfVerbInfinitives.has(stem)) return true;
+    }
+    return false;
+}
+
 function buildMaps() {
     for (const [da, pf, note] of DICTIONARY) {
         const daLower = da.toLowerCase();
         const pfLower = pf.toLowerCase();
+        
+        if (DANISH_VERB_INFINITIVES.has(daLower) && pfLower.endsWith('e')) {
+            pfVerbInfinitives.add(pfLower);
+        }
         
         // Danish → PorFraDansk (store first match for primary lookup)
         if (!danskToPf.has(daLower)) {
@@ -343,7 +408,174 @@ function mapReverseVowel(char) {
 // Translation Functions
 // ============================================
 
-function translateWord(word, direction) {
+function isPrecededByDeterminer(tokens, currentIndex) {
+    const determiners = new Set([
+        "en", "et", "den", "det", "denne", "dette", "min", "mit", "mine", 
+        "din", "dit", "dine", "sin", "sit", "sine", "vores", "jeres", "deres"
+    ]);
+    const danishAdjectives = new Set([
+        "mistænkelig", "sjov", "fri", "frie", "frit", "værdig", "lang", "lille", "høj", "hemmelig", 
+        "dygtig", "nem", "god", "godt", "hurtig", "mulig", "hellig", "ussel", "bekræftet", "lige", 
+        "lig", "stor", "smuk", "pæn", "gammel", "ung", "ny", "glad", "vred", "sur", "stærk", 
+        "svag", "rig", "fattig", "langsom", "træt", "sulten", "tørstig", "dum", "klog", "vigtig", 
+        "farlig", "sikker", "rolig", "vild", "ren", "beskidt", "ked af det", "trist", "lykkelig", 
+        "syg", "sund", "korrekt", "forkert", "rød", "blå", "grøn", "gul", "lilla", "sort", "hvid", 
+        "brun", "lyserød", "meget", "rigtig", "virkelig", "fucking"
+    ]);
+    
+    for (let k = currentIndex - 1; k >= 0; k--) {
+        const t = tokens[k];
+        if (/^\s+$/.test(t)) continue;
+        
+        const clean = t.replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+        if (determiners.has(clean)) {
+            return true;
+        }
+        if (danishAdjectives.has(clean) || clean.endsWith('e') || clean.endsWith('ig') || clean.endsWith('t')) {
+            continue;
+        }
+        break;
+    }
+    return false;
+}
+
+function isCopula(clean) {
+    const copulas = new Set(["ve", "va", "veró", "vera", "vebo"]);
+    const stem = clean.replace(/rómónga|ramónga|bomócanga|rómócanga|rómó|ramó|rónga|ranga|mónga|canga|mócha|ró|ra|bo|mó|ca|nga$/, '');
+    return copulas.has(stem) || copulas.has(clean);
+}
+
+function getVerbRelationInClause(tokens, index) {
+    let start = 0;
+    let end = tokens.length;
+    const clauseBoundaries = new Set([",", ".", "!", "?", ";", "ke", "o", "ó", "más", "ö"]);
+    
+    for (let k = index - 1; k >= 0; k--) {
+        const clean = tokens[k].replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+        if (clauseBoundaries.has(clean)) {
+            start = k + 1;
+            break;
+        }
+    }
+    for (let k = index + 1; k < tokens.length; k++) {
+        const clean = tokens[k].replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+        if (clauseBoundaries.has(clean)) {
+            end = k;
+            break;
+        }
+    }
+    
+    let verbIdx = -1;
+    let verbClean = "";
+    for (let k = start; k < end; k++) {
+        if (k === index) continue;
+        const t = tokens[k];
+        if (/^\s+$/.test(t)) continue;
+        const clean = t.replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+        if (isPorFraDanskVerb(clean)) {
+            verbIdx = k;
+            verbClean = clean;
+            break;
+        }
+    }
+    
+    if (verbIdx === -1) {
+        return 'no_verb';
+    }
+    
+    if (isCopula(verbClean)) {
+        return 'after_verb';
+    }
+    
+    if (index > verbIdx) {
+        return 'after_verb';
+    } else {
+        let hasSubjectAfter = false;
+        for (let k = verbIdx + 1; k < end; k++) {
+            const t = tokens[k];
+            if (/^\s+$/.test(t)) continue;
+            const clean = t.replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+            if (clean && !isPorFraDanskVerb(clean) && !clean.endsWith('i') && !clean.endsWith('si') && clean !== 'béc' && !clauseBoundaries.has(clean) && clean !== 'maa') {
+                hasSubjectAfter = true;
+                break;
+            }
+        }
+        return hasSubjectAfter ? 'before_verb' : 'after_verb';
+    }
+}
+
+function findNextNounDanish(tokens, currentIndex) {
+    for (let k = currentIndex + 1; k < tokens.length; k++) {
+        const token = tokens[k];
+        if (/^\s+$/.test(token)) continue;
+        
+        const clean = token.replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+        if (!clean) continue;
+        
+        if (isPorFraDanskVerb(clean)) break;
+        if (clean === ',' || clean === '.' || clean === '!' || clean === '?' || clean === ';' || 
+            clean === 'o' || clean === 'ó' || clean === 'más' || clean === 'ke' || clean === 'ö') break;
+        
+        if (clean.endsWith('i') || clean.endsWith('si') || clean === 'béc') {
+            continue;
+        }
+        
+        if (typeof translationMemory !== 'undefined' && translationMemory.pfToDa.has(clean)) {
+            return translationMemory.pfToDa.get(clean);
+        }
+        
+        const entry = pfToDansk.get(clean);
+        if (entry) {
+            return entry.da.toLowerCase();
+        }
+    }
+    return null;
+}
+
+function isPluralNounPhrase(tokens, currentIndex) {
+    let nounIdx = -1;
+    for (let k = currentIndex + 1; k < tokens.length; k++) {
+        const token = tokens[k];
+        if (/^\s+$/.test(token)) continue;
+        const clean = token.replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+        if (isPorFraDanskVerb(clean) || clean === ',' || clean === '.' || clean === '!' || clean === '?' || clean === ';') {
+            break;
+        }
+        if (clean.endsWith('i') || clean.endsWith('si') || clean === 'béc') {
+            continue;
+        }
+        nounIdx = k;
+        break;
+    }
+    if (nounIdx === -1) return false;
+    
+    const startScan = Math.max(0, currentIndex - 2);
+    for (let k = startScan; k <= nounIdx; k++) {
+        const token = tokens[k];
+        if (/^\s+$/.test(token)) continue;
+        const clean = token.replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+        if (PLURAL_MODIFIERS.has(clean)) {
+            return true;
+        }
+    }
+    
+    const cleanNoun = tokens[nounIdx].replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+    let daNoun = null;
+    if (typeof translationMemory !== 'undefined' && translationMemory.pfToDa.has(cleanNoun)) {
+        daNoun = translationMemory.pfToDa.get(cleanNoun);
+    } else {
+        const entry = pfToDansk.get(cleanNoun);
+        if (entry) daNoun = entry.da.toLowerCase();
+    }
+    
+    if (daNoun && PLURAL_NOUNS.has(daNoun)) {
+        return true;
+    }
+    
+    return false;
+}
+
+function translateWord(word, direction, tokens = null, index = -1) {
     // Strip trailing punctuation for lookup
     const punctMatch = word.match(/^(.*?)([.,!?;:'"»«\)\]]+)$/);
     let core = word;
@@ -362,6 +594,161 @@ function translateWord(word, direction) {
     }
     
     const coreLower = core.toLowerCase();
+    
+    // 0. Check Translation Memory (Alignment Cache)
+    if (direction === 'da') {
+        if (translationMemory.daToPf.has(coreLower)) {
+            const target = translationMemory.daToPf.get(coreLower);
+            return {
+                result: leading + matchCase(core, target) + trailing,
+                found: true,
+                original: core,
+                translated: target
+            };
+        }
+    } else {
+        if (translationMemory.pfToDa.has(coreLower)) {
+            const target = translationMemory.pfToDa.get(coreLower);
+            return {
+                result: leading + matchCase(core, target) + trailing,
+                found: true,
+                original: core,
+                translated: target
+            };
+        }
+    }
+    
+    // Context-sensitive overrides (Danish → PorFraDansk)
+    if (direction === 'da' && tokens && index !== -1) {
+        // 1. Conjunction / Infinitive marker "at"
+        if (coreLower === 'at') {
+            let nextWord = null;
+            for (let k = index + 1; k < tokens.length; k++) {
+                if (!/^\s+$/.test(tokens[k])) {
+                    nextWord = tokens[k].replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+                    break;
+                }
+            }
+            if (nextWord && DANISH_VERB_INFINITIVES.has(nextWord)) {
+                return {
+                    result: leading + matchCase(core, 'ö') + trailing,
+                    found: true,
+                    original: core,
+                    translated: 'ö'
+                };
+            } else {
+                return {
+                    result: leading + matchCase(core, 'ke') + trailing,
+                    found: true,
+                    original: core,
+                    translated: 'ke'
+                };
+            }
+        }
+        
+        // 2. Preposition / Verb "ved"
+        if (coreLower === 'ved') {
+            let prevWord = null;
+            for (let k = index - 1; k >= 0; k--) {
+                if (!/^\s+$/.test(tokens[k])) {
+                    prevWord = tokens[k].replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1');
+                    break;
+                }
+            }
+            let nextWord = null;
+            let nextWord2 = null;
+            let foundNext = 0;
+            for (let k = index + 1; k < tokens.length; k++) {
+                if (!/^\s+$/.test(tokens[k])) {
+                    const clean = tokens[k].replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+                    if (foundNext === 0) {
+                        nextWord = clean;
+                        foundNext = 1;
+                    } else if (foundNext === 1) {
+                        nextWord2 = clean;
+                        break;
+                    }
+                }
+            }
+            
+            const subjectPronouns = new Set(["jeg", "du", "han", "hun", "vi", "I", "de", "man"]);
+            const sivaObjects = new Set(["det", "alt", "intet", "ingenting", "noget", "hvad", "hvem", "hvorfor", "hvordan", "hvornår", "hvor"]);
+            const nonSubjects = new Set(["en", "et", "den", "det", "denne", "dette", "i", "på", "med", "mod", "til", "for", "af", "om", "fra", "efter", "før", "over", "under", "ved", "uden", "mellem", "hos", "bag", "foran", "og", "eller", "men", "at", "som", "der"]);
+            
+            let isVerb = false;
+            if (prevWord) {
+                const prevLower = prevWord.toLowerCase();
+                if (subjectPronouns.has(prevLower)) {
+                    isVerb = true;
+                } else if (prevWord[0] === prevWord[0].toUpperCase() && !nonSubjects.has(prevLower)) {
+                    isVerb = true;
+                }
+            }
+            if (nextWord && sivaObjects.has(nextWord)) {
+                isVerb = true;
+            }
+            if (nextWord === 'at' && nextWord2 && !DANISH_VERB_INFINITIVES.has(nextWord2)) {
+                isVerb = true;
+            }
+            
+            const target = isVerb ? 'siva' : 'juntu';
+            return {
+                result: leading + matchCase(core, target) + trailing,
+                found: true,
+                original: core,
+                translated: target
+            };
+        }
+        
+        // 3. Ambiguous Verb/Noun resolution
+        const ambiguousNounsMap = {
+            'lærer': { noun: 'åndukongus', verb: 'aprenda' },
+            'forklarer': { noun: 'foplikongus', verb: 'foplika' },
+            'dræber': { noun: 'teebongus', verb: 'teeba' },
+            'spiser': { noun: 'misongus', verb: 'misa' },
+            'underviser': { noun: 'åndukongus', verb: 'ånduka' },
+            'elsker': { noun: 'ámongus', verb: 'áma' },
+            'oversætter': { noun: 'tradusongus', verb: 'tradusa' },
+            'arbejde': { noun: 'trabáju', verb: 'trabáje' }
+        };
+        
+        if (ambiguousNounsMap[coreLower]) {
+            const isNoun = isPrecededByDeterminer(tokens, index);
+            const target = isNoun ? ambiguousNounsMap[coreLower].noun : ambiguousNounsMap[coreLower].verb;
+            return {
+                result: leading + matchCase(core, target) + trailing,
+                found: true,
+                original: core,
+                translated: target
+            };
+        }
+        
+        // 4. Irregular past tense for ville, kunne, skulle
+        const irregularVerbsMap = {
+            'ville': { past: 'kréleró', inf: 'kréle' },
+            'kunne': { past: 'puderó', inf: 'pude' },
+            'skulle': { past: 'durderó', inf: 'durde' }
+        };
+        
+        if (irregularVerbsMap[coreLower]) {
+            let prevWord = null;
+            for (let k = index - 1; k >= 0; k--) {
+                if (!/^\s+$/.test(tokens[k])) {
+                    prevWord = tokens[k].replace(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/, '$1').toLowerCase();
+                    break;
+                }
+            }
+            const subjectPronouns = new Set(["jeg", "du", "han", "hun", "vi", "I", "de", "man"]);
+            const isPast = prevWord && subjectPronouns.has(prevWord);
+            const target = isPast ? irregularVerbsMap[coreLower].past : irregularVerbsMap[coreLower].inf;
+            return {
+                result: leading + matchCase(core, target) + trailing,
+                found: true,
+                original: core,
+                translated: target
+            };
+        }
+    }
     
     if (direction === 'da') {
         // Danish → PorFraDansk
@@ -397,6 +784,89 @@ function translateWord(word, direction) {
         };
     } else {
         // PorFraDansk → Danish
+        // Context-sensitive overrides (PorFraDansk → Danish)
+        if (tokens && index !== -1) {
+            // 1. OVS Pronoun Case Resolution
+            if (PRONOUN_MAP[coreLower]) {
+                const rel = getVerbRelationInClause(tokens, index);
+                const target = (rel === 'after_verb' || rel === 'no_verb') ? PRONOUN_MAP[coreLower].subject : PRONOUN_MAP[coreLower].object;
+                return {
+                    result: leading + matchCase(core, target) + trailing,
+                    found: true,
+                    original: core,
+                    translated: target
+                };
+            }
+            
+            // 2. Gender & Number Agreement for Articles/Possessives
+            const isPlural = isPluralNounPhrase(tokens, index);
+            const nextNoun = findNextNounDanish(tokens, index);
+            const isNeuter = nextNoun && NEUTER_NOUNS.has(nextNoun);
+            
+            if (coreLower === 'un') {
+                const target = isNeuter ? 'et' : 'en';
+                return {
+                    result: leading + matchCase(core, target) + trailing,
+                    found: true,
+                    original: core,
+                    translated: target
+                };
+            }
+            if (coreLower === 'thes') {
+                const target = isNeuter ? 'dette' : 'denne';
+                return {
+                    result: leading + matchCase(core, target) + trailing,
+                    found: true,
+                    original: core,
+                    translated: target
+                };
+            }
+            if (coreLower === 'món') {
+                const target = isPlural ? 'mine' : (isNeuter ? 'mit' : 'min');
+                return {
+                    result: leading + matchCase(core, target) + trailing,
+                    found: true,
+                    original: core,
+                    translated: target
+                };
+            }
+            if (coreLower === 'tón') {
+                const target = isPlural ? 'dine' : (isNeuter ? 'dit' : 'din');
+                return {
+                    result: leading + matchCase(core, target) + trailing,
+                    found: true,
+                    original: core,
+                    translated: target
+                };
+            }
+            if (coreLower === 'dés') {
+                const target = isPlural ? 'sine' : (isNeuter ? 'sit' : 'sin');
+                return {
+                    result: leading + matchCase(core, target) + trailing,
+                    found: true,
+                    original: core,
+                    translated: target
+                };
+            }
+            
+            // 3. Plural Noun selection
+            if (isPlural) {
+                const allTranslations = pfToDanskAll.get(coreLower);
+                if (allTranslations) {
+                    for (const entry of allTranslations) {
+                        if (PLURAL_NOUNS.has(entry.da.toLowerCase())) {
+                            return {
+                                result: leading + matchCase(core, entry.da) + trailing,
+                                found: true,
+                                original: core,
+                                translated: entry.da
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Direct dictionary lookup
         const entry = pfToDansk.get(coreLower);
         if (entry) {
@@ -441,21 +911,83 @@ function matchCase(source, target) {
     return target;
 }
 
+function mergeMultiWordTokens(tokens, direction) {
+    const sourcePhrases = [];
+    for (const [da, pf] of DICTIONARY) {
+        const src = (direction === 'da' ? da : pf).toLowerCase();
+        if (src.includes(' ')) {
+            sourcePhrases.push(src);
+        }
+    }
+    const uniquePhrases = Array.from(new Set(sourcePhrases)).sort((a, b) => b.split(' ').length - a.split(' ').length);
+
+    const wordIndices = [];
+    for (let i = 0; i < tokens.length; i++) {
+        if (!/^\s+$/.test(tokens[i])) {
+            wordIndices.push(i);
+        }
+    }
+
+    let i = 0;
+    while (i < wordIndices.length) {
+        let matched = false;
+        for (const phrase of uniquePhrases) {
+            const phraseWordCount = phrase.split(' ').length;
+            if (i + phraseWordCount <= wordIndices.length) {
+                const subWordIndices = wordIndices.slice(i, i + phraseWordCount);
+                const subWords = subWordIndices.map(idx => {
+                    const t = tokens[idx];
+                    const cleanMatch = t.match(/^[(\[«'"]*(.*?)[.,!?;:'"»«\)\]]*$/);
+                    return cleanMatch ? cleanMatch[1].toLowerCase() : t.toLowerCase();
+                });
+                
+                const candidate = subWords.join(' ');
+                if (candidate === phrase) {
+                    const startTokenIdx = subWordIndices[0];
+                    const endTokenIdx = subWordIndices[subWordIndices.length - 1];
+                    const mergedText = tokens.slice(startTokenIdx, endTokenIdx + 1).join('');
+                    
+                    tokens.splice(startTokenIdx, endTokenIdx - startTokenIdx + 1, mergedText);
+                    
+                    wordIndices.length = 0;
+                    for (let k = 0; k < tokens.length; k++) {
+                        if (!/^\s+$/.test(tokens[k])) {
+                            wordIndices.push(k);
+                        }
+                    }
+                    
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (!matched) {
+            i++;
+        }
+    }
+    return tokens;
+}
+
 function translateText(text, direction) {
     if (!text.trim()) return { translated: '', words: [] };
     
     // Split while preserving whitespace and structure
-    const tokens = text.split(/(\s+)/);
+    let tokens = text.split(/(\s+)/);
+    tokens = mergeMultiWordTokens(tokens, direction);
     const results = [];
     const wordBreakdowns = [];
     
-    for (const token of tokens) {
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
         if (/^\s+$/.test(token)) {
             results.push(token);
         } else {
-            const { result, found, original, translated } = translateWord(token, direction);
+            const { result, found, original, translated } = translateWord(token, direction, tokens, i);
             results.push(result);
             wordBreakdowns.push({ original, translated, found });
+            if (found && translated) {
+                saveToTranslationMemory(direction, original, translated);
+            }
         }
     }
     
@@ -463,6 +995,30 @@ function translateText(text, direction) {
         translated: results.join(''),
         words: wordBreakdowns
     };
+}
+
+function saveToTranslationMemory(direction, src, tgt) {
+    const srcClean = src.toLowerCase();
+    const tgtClean = tgt.toLowerCase();
+    
+    const tgtCleanCore = tgtClean.replace(/\s*[\⚙\★\✨].*$/, '').replace(/\s*\(.*?\)/, '').trim();
+    const srcCleanCore = srcClean.replace(/\s*[\⚙\★\✨].*$/, '').replace(/\s*\(.*?\)/, '').trim();
+    
+    const UNCACHEABLE_WORDS = new Set([
+        "un", "thes", "món", "tón", "dés", "ló", "shai", "tu", "hil", "hel", "vinos", "ivu", "dil", "at", "ved", "ke", "ö", "hesa",
+        "en", "et", "den", "det", "denne", "dette", "min", "mit", "mine", "din", "dit", "dine", "sin", "sit", "sine", "jeg", "mig",
+        "du", "dig", "han", "ham", "hun", "hende", "vi", "os", "i", "jer", "de", "dem"
+    ]);
+    
+    if (UNCACHEABLE_WORDS.has(srcCleanCore) || UNCACHEABLE_WORDS.has(tgtCleanCore)) {
+        return;
+    }
+    
+    if (direction === 'da') {
+        translationMemory.pfToDa.set(tgtCleanCore, srcCleanCore);
+    } else {
+        translationMemory.daToPf.set(tgtCleanCore, srcCleanCore);
+    }
 }
 
 // ============================================
@@ -506,6 +1062,8 @@ function clearInput() {
     document.getElementById('output-text').innerHTML = '<span class="placeholder-text">Oversættelsen vises her…</span>';
     document.getElementById('char-count').textContent = '0 tegn';
     document.getElementById('breakdown-section').style.display = 'none';
+    translationMemory.daToPf.clear();
+    translationMemory.pfToDa.clear();
 }
 
 function copyOutput() {
