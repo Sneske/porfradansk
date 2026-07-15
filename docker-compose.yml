@@ -1,0 +1,18 @@
+services:
+  web:
+    build: .
+    ports:
+      - "3452:80"
+    develop:
+      watch:
+        - action: sync
+          path: ./
+          target: /usr/share/nginx/html
+          ignore:
+            - Dockerfile
+            - docker-compose.yml
+            - README.md
+            - "Porfradansk .pdf"
+            - pdf_content.txt
+            - .gitignore
+            - .git/
